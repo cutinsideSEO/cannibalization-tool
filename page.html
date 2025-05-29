@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyword Cannibalisation Visualiser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Tailwind gray-900 */
+            color: #e2e8f0; /* Tailwind slate-200 */
+        }
+        .dark-card {
+            background-color: #2d3748; /* Tailwind gray-800 */
+            border: 1px solid #4a5568; /* Tailwind gray-600 */
+        }
+        .metric-button {
+            transition: all 0.2s ease-in-out;
+        }
+        .metric-button.active {
+            background-color: #4299e1; /* Tailwind blue-500 */
+            color: white;
+        }
+        .metric-button:not(.active):hover {
+            background-color: #4a5568; /* Tailwind gray-600 */
+        }
+        .keyword-item:hover {
+            background-color: #4a5568; /* Tailwind gray-600 */
+        }
+        .keyword-item.active {
+            background-color: #3182ce; /* Tailwind blue-600 */
+            color: white;
+        }
+        #keywordListContainer {
+            max-height: 400px; /* Default max height */
+            overflow-y: auto;
+        }
+        @media (min-width: 1024px) { /* lg breakpoint */
+             #keywordListContainer {
+                max-height: 500px; 
+             }
+        }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            min-width: 140px; /* Adjusted min-width for longer text */
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px 8px; /* Adjusted padding */
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -70px; /* Adjusted for new min-width */
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        /* Custom scrollbar for webkit browsers */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2d3748; 
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568; 
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #718096; 
+        }
+        .loader {
+            border: 5px solid #f3f3f3; 
+            border-top: 5px solid #3498db; 
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .message-box {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ef4444; 
+            color: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: none; 
+        }
+        .badge-container {
+            display: flex;
+            gap: 0.25rem; /* space between badges */
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div id="messageBox" class="message-box"></div>
+    <header class="mb-8 text-center">
+        <h1 class="text-3xl md:text-4xl font-bold text-blue-400">Keyword Cannibalisation Visualiser</h1>
+        <p class="text-slate-400 mt-2">Upload your GSC CSV to identify and visualize keyword cannibalisation.</p>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="dark-card p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-semibold mb-3 text-slate-100">1. Upload GSC Data</h2>
+            <input type="file" id="csvFileInput" accept=".csv" class="block w-full text-sm text-slate-400
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-md file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-500 file:text-white
+                hover:file:bg-blue-600 cursor-pointer"/>
+            <p id="fileInfo" class="text-xs text-slate-500 mt-2">Upload a CSV export from Google Search Console.</p>
+            <div id="loadingIndicator" class="loader" style="display: none;"></div>
+        </div>
+
+        <div class="dark-card p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-semibold mb-3 text-slate-100">2. Filter Keywords</h2>
+            <div class="flex">
+                <input type="text" id="keywordFilterInput" placeholder="Enter keyword to filter..." class="w-full p-2 rounded-l-md bg-gray-700 border border-gray-600 focus:border-blue-500 focus:ring-blue-500 outline-none">
+                <button id="clearFilterButton" class="p-2 bg-blue-500 text-white rounded-r-md hover:bg-blue-600">Clear</button>
+            </div>
+            <p id="keywordCountText" class="text-xs text-slate-500 mt-2">Showing 0 keywords.</p>
+        </div>
+
+        <div class="dark-card p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-semibold mb-3 text-slate-100">3. Metric to Visualize</h2>
+            <div id="metricButtons" class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button data-metric="Clicks" class="metric-button p-2 rounded-md border border-gray-600 active">Clicks</button>
+                <button data-metric="Impressions" class="metric-button p-2 rounded-md border border-gray-600">Impressions</button>
+                <button data-metric="CTR" class="metric-button p-2 rounded-md border border-gray-600">CTR (%)</button>
+                <button data-metric="Position" class="metric-button p-2 rounded-md border border-gray-600">Position</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-1 dark-card p-6 rounded-lg shadow-lg flex flex-col">
+            <h2 class="text-xl font-semibold mb-4 text-slate-100">Keywords with Multiple URLs</h2>
+            <div id="keywordListContainer" class="space-y-1 flex-grow">
+                <p class="text-slate-400">Upload a CSV to see keywords.</p>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2 dark-card p-6 rounded-lg shadow-lg flex flex-col min-h-[400px] md:min-h-[500px]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="chartTitle" class="text-xl font-semibold text-slate-100">Select a keyword to see visualization</h2>
+                <span id="dominantUrlChangeBadge" class="hidden text-xs font-semibold px-2 py-1 bg-red-500 text-white rounded-full">Dominant URL Changed</span> 
+                {/* This specific badge might be better placed near the keyword list, or a general one here. For now, keeping as is. */}
+            </div>
+            <div class="relative flex-grow h-[350px] sm:h-[400px] md:h-[450px] lg:h-[calc(100%-4rem)]">
+                <canvas id="cannibalisationChart"></canvas>
+            </div>
+            <div id="chartError" class="text-red-400 text-center mt-4" style="display: none;"></div>
+        </div>
+    </div>
+
+    <div class="mt-8 dark-card p-6 rounded-lg shadow-lg">
+        {/* MODIFIED: Added ID to H2 for dynamic title update */}
+        <h2 id="performanceTableTitle" class="text-xl font-semibold mb-4 text-slate-100">Performance by URL for Selected Keyword</h2>
+        <div id="performanceTableContainer" class="overflow-x-auto">
+            <p class="text-slate-400">Select a keyword to see detailed performance data.</p>
+        </div>
+    </div>
+
+    <footer class="text-center text-sm text-slate-500 mt-12 py-4 border-t border-gray-700">
+        Keyword Cannibalisation Visualiser | Built with Tailwind CSS & Chart.js
+    </footer>
+
+    <script>
+        // --- DOM Elements ---
+        const csvFileInput = document.getElementById('csvFileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const keywordFilterInput = document.getElementById('keywordFilterInput');
+        const clearFilterButton = document.getElementById('clearFilterButton');
+        const keywordCountText = document.getElementById('keywordCountText');
+        const metricButtonsContainer = document.getElementById('metricButtons');
+        const keywordListContainer = document.getElementById('keywordListContainer');
+        const chartTitle = document.getElementById('chartTitle');
+        // const dominantUrlChangeBadge = document.getElementById('dominantUrlChangeBadge'); // This badge is now generated per keyword
+        const cannibalisationChartCanvas = document.getElementById('cannibalisationChart');
+        const chartError = document.getElementById('chartError');
+        const performanceTableContainer = document.getElementById('performanceTableContainer');
+        const performanceTableTitle = document.getElementById('performanceTableTitle'); // MODIFIED: Get table title element
+        const messageBox = document.getElementById('messageBox');
+
+        // --- Global State ---
+        let rawData = [];
+        let processedData = {};
+        let chartInstance = null;
+        let selectedKeyword = null;
+        let selectedMetric = 'Clicks';
+        let columnMap = {};
+
+        // --- Chart Colors ---
+        // MODIFIED: Expanded and diversified color palette
+        const CHART_COLORS = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
+            '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78',
+            '#98df8a', '#ff9896', '#c5b0d5', '#c49c94', '#f7b6d2', '#c7c7c7',
+            '#dbdb8d', '#9edae5', '#393b79', '#637939', '#8c6d31', '#843c39',
+            '#7b4173', '#5254a3', '#6b6ecf', '#e7cb94', '#cedb9c', '#bd9e39'
+        ];
+
+
+        // --- Event Listeners ---
+        csvFileInput.addEventListener('change', handleFileUpload);
+        keywordFilterInput.addEventListener('input', filterKeywordList);
+        clearFilterButton.addEventListener('click', () => {
+            keywordFilterInput.value = '';
+            filterKeywordList();
+        });
+
+        metricButtonsContainer.addEventListener('click', (event) => {
+            if (event.target.tagName === 'BUTTON') {
+                document.querySelectorAll('#metricButtons button').forEach(btn => btn.classList.remove('active'));
+                event.target.classList.add('active');
+                selectedMetric = event.target.dataset.metric;
+                if (selectedKeyword && processedData[selectedKeyword]) {
+                    renderChartAndTable(selectedKeyword);
+                }
+            }
+        });
+
+        // --- Functions ---
+
+        function showMessage(message, isError = true) {
+            messageBox.textContent = message;
+            messageBox.style.backgroundColor = isError ? '#ef4444' : '#22c55e';
+            messageBox.style.display = 'block';
+            setTimeout(() => {
+                messageBox.style.display = 'none';
+            }, 5000);
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                fileInfo.textContent = 'No file selected.';
+                return;
+            }
+            if (!file.name.endsWith('.csv')) {
+                showMessage('Invalid file type. Please upload a CSV file.');
+                csvFileInput.value = '';
+                return;
+            }
+
+            fileInfo.textContent = `File: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
+            loadingIndicator.style.display = 'block';
+            keywordListContainer.innerHTML = '<p class="text-slate-400">Processing CSV...</p>';
+            performanceTableContainer.innerHTML = '<p class="text-slate-400">Processing CSV...</p>';
+            performanceTableTitle.textContent = 'Performance by URL for Selected Keyword'; // Reset title
+            if (chartInstance) chartInstance.destroy();
+            chartTitle.textContent = 'Processing...';
+            // dominantUrlChangeBadge.classList.add('hidden'); // This badge is now per keyword
+            chartError.style.display = 'none';
+
+            try {
+                const csvText = await file.text();
+                parseAndProcessCSV(csvText);
+            } catch (error) {
+                console.error("Error reading or processing file:", error);
+                showMessage(`Error processing file: ${error.message}`);
+                keywordListContainer.innerHTML = '<p class="text-red-400">Error processing file.</p>';
+            } finally {
+                loadingIndicator.style.display = 'none';
+            }
+        }
+
+        function parseAndProcessCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) {
+                showMessage('CSV file is empty or has no data rows.');
+                keywordListContainer.innerHTML = '<p class="text-red-400">CSV file is empty or has no data rows.</p>';
+                return;
+            }
+
+            const headerRow = lines[0].trim();
+            const headers = headerRow.split(',').map(h => h.trim());
+
+            columnMap = {};
+            const knownHeaders = {
+                query: ['query', 'keyword', 'top queries'],
+                page: ['page', 'landing page', 'url'],
+                date: ['date'],
+                clicks: ['clicks', 'url clicks'],
+                impressions: ['impressions'],
+                ctr: ['ctr', 'click through rate', 'url ctr'],
+                position: ['position', 'average position']
+            };
+
+            for (const key in knownHeaders) {
+                for (const alias of knownHeaders[key]) {
+                    const index = headers.findIndex(h => h.toLowerCase() === alias.toLowerCase());
+                    if (index !== -1) {
+                        columnMap[key] = index;
+                        break;
+                    }
+                }
+            }
+            
+            const requiredKeys = ['query', 'page', 'date', 'clicks', 'impressions'];
+            for (const reqKey of requiredKeys) {
+                if (typeof columnMap[reqKey] === 'undefined') {
+                    showMessage(`Required column "${reqKey}" (or its alias like '${knownHeaders[reqKey].join("', '")}') not found in CSV header. Headers found: ${headers.join(', ')}`);
+                    keywordListContainer.innerHTML = `<p class="text-red-400">Missing required column: ${reqKey}. Please ensure your CSV has columns like Query, Landing Page, Date, Clicks/Url Clicks, Impressions.</p>`;
+                    return;
+                }
+            }
+
+            rawData = [];
+            const rowRegex = /(?:^|,)(\"(?:[^\"]+|\"\")*\"|[^,]*)/g;
+
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].trim() === '') continue;
+
+                const values = [];
+                let match;
+                while (match = rowRegex.exec(lines[i])) {
+                    let value = match[1];
+                    if (value.startsWith('"') && value.endsWith('"')) {
+                        value = value.substring(1, value.length - 1).replace(/""/g, '"');
+                    }
+                    values.push(value);
+                }
+
+                if (values.length >= headers.length) {
+                    const row = {};
+                    row.Query = values[columnMap.query] || '';
+                    row.Page = values[columnMap.page] || '';
+                    row.Date = values[columnMap.date] || '';
+                    row.Clicks = parseInt(values[columnMap.clicks]) || 0;
+                    row.Impressions = parseInt(values[columnMap.impressions]) || 0;
+                    
+                    const ctrValue = values[columnMap.ctr];
+                    if (ctrValue && ctrValue.includes('%')) {
+                         row.CTR = parseFloat(ctrValue.replace('%','')) / 100;
+                    } else if (ctrValue) {
+                         row.CTR = parseFloat(ctrValue) || 0;
+                    } else {
+                        row.CTR = 0;
+                    }
+
+                    const positionValue = values[columnMap.position];
+                    row.Position = parseFloat(positionValue) || 0;
+                    
+                    if (row.Query && row.Page && row.Date) {
+                        rawData.push(row);
+                    }
+                } else {
+                    console.warn(`Skipping row ${i+1} due to mismatched column count. Expected ${headers.length}, got ${values.length}. Row content: ${lines[i]}`);
+                }
+            }
+
+            if (rawData.length === 0) {
+                showMessage('No valid data rows found in the CSV after parsing. Please check CSV format and content.');
+                keywordListContainer.innerHTML = '<p class="text-red-400">No valid data rows found.</p>';
+                return;
+            }
+            
+            processGSCData();
+            displayKeywordList();
+            showMessage('CSV processed successfully!', false);
+        }
+
+        function processGSCData() {
+            processedData = {};
+            const tempProcessedData = {};
+
+            rawData.forEach(row => {
+                const query = row.Query;
+                const page = row.Page;
+                const date = row.Date;
+
+                if (!tempProcessedData[query]) {
+                    tempProcessedData[query] = { urls: {}, allDatesSet: new Set() };
+                }
+                if (!tempProcessedData[query].urls[page]) {
+                    tempProcessedData[query].urls[page] = [];
+                }
+
+                tempProcessedData[query].urls[page].push({
+                    date: date,
+                    clicks: row.Clicks,
+                    impressions: row.Impressions,
+                    ctr: row.CTR,
+                    position: row.Position
+                });
+                tempProcessedData[query].allDatesSet.add(date);
+            });
+
+            for (const query in tempProcessedData) {
+                const queryData = tempProcessedData[query];
+                const urlsForQuery = Object.keys(queryData.urls);
+
+                if (urlsForQuery.length > 1) {
+                    let totalImpressionsForQuery = 0;
+                    const allDatesSetForQuery = new Set();
+                    let dominantUrlHasChanged = false;
+                    let multiplePagesGotClicks = false; // MODIFIED: New flag
+
+                    urlsForQuery.forEach(url => {
+                        queryData.urls[url].forEach(dp => {
+                            totalImpressionsForQuery += dp.impressions;
+                            allDatesSetForQuery.add(dp.date);
+                        });
+                    });
+                    
+                    const sortedDates = Array.from(allDatesSetForQuery).sort((a, b) => new Date(a) - new Date(b));
+                    
+                    // Check for dominant URL change
+                    let previousDominantUrl = null;
+                    sortedDates.forEach(date => {
+                        let currentDominantUrl = null;
+                        let maxClicksOnDate = -1;
+                        let pagesWithClicksOnDate = 0; // MODIFIED: Counter for new warning
+
+                        urlsForQuery.forEach(url => {
+                            const dataPoint = queryData.urls[url].find(dp => dp.date === date);
+                            if (dataPoint) {
+                                if (dataPoint.clicks > 0) {
+                                    pagesWithClicksOnDate++;
+                                }
+                                if (dataPoint.clicks > maxClicksOnDate) {
+                                    maxClicksOnDate = dataPoint.clicks;
+                                    currentDominantUrl = url;
+                                }
+                            }
+                        });
+
+                        if (pagesWithClicksOnDate >= 2) { // MODIFIED: Check for new warning
+                            multiplePagesGotClicks = true;
+                        }
+
+                        if (previousDominantUrl && currentDominantUrl && currentDominantUrl !== previousDominantUrl && maxClicksOnDate > 0) {
+                            dominantUrlHasChanged = true;
+                        }
+                        if (currentDominantUrl && maxClicksOnDate > 0) {
+                             previousDominantUrl = currentDominantUrl;
+                        }
+                    });
+                    
+                    processedData[query] = {
+                        urls: {},
+                        allDates: sortedDates,
+                        hasCannibalisation: true, // This is true by definition of being in this loop
+                        dominantUrlHasChanged: dominantUrlHasChanged,
+                        multiplePagesGotClicks: multiplePagesGotClicks, // MODIFIED: Store new flag
+                        totalImpressions: totalImpressionsForQuery
+                    };
+
+                    urlsForQuery.forEach(url => {
+                        processedData[query].urls[url] = queryData.urls[url].sort((a, b) => new Date(a.date) - new Date(b.date));
+                    });
+                }
+            }
+        }
+
+        function displayKeywordList() {
+            keywordListContainer.innerHTML = '';
+            
+            let keywordsToDisplay = Object.keys(processedData).map(query => ({
+                query: query,
+                totalImpressions: processedData[query].totalImpressions,
+                dominantUrlHasChanged: processedData[query].dominantUrlHasChanged,
+                multiplePagesGotClicks: processedData[query].multiplePagesGotClicks // MODIFIED: Get new flag
+            }));
+
+            const filterText = keywordFilterInput.value.toLowerCase();
+            keywordsToDisplay = keywordsToDisplay.filter(item => item.query.toLowerCase().includes(filterText));
+            keywordsToDisplay.sort((a, b) => b.totalImpressions - a.totalImpressions);
+
+            if (keywordsToDisplay.length === 0) {
+                keywordListContainer.innerHTML = `<p class="text-slate-400">${Object.keys(processedData).length > 0 ? 'No matching keywords.' : 'No keywords with multiple URLs found or CSV not loaded.'}</p>`;
+                keywordCountText.textContent = `Showing 0 of ${Object.keys(processedData).length} keywords with multiple URLs.`;
+                return;
+            }
+
+            keywordsToDisplay.forEach(keywordItem => {
+                const listItem = document.createElement('div');
+                listItem.classList.add('keyword-item', 'p-2', 'rounded-md', 'cursor-pointer', 'text-sm', 'flex', 'justify-between', 'items-center', 'w-full');
+                listItem.dataset.query = keywordItem.query;
+
+                const textContentDiv = document.createElement('div');
+                textContentDiv.classList.add('flex', 'items-center', 'overflow-hidden', 'mr-2', 'flex-grow');
+
+                const queryNameSpan = document.createElement('span');
+                queryNameSpan.textContent = keywordItem.query;
+                queryNameSpan.classList.add('truncate', 'mr-2');
+                
+                const impressionsSpan = document.createElement('span');
+                impressionsSpan.textContent = `${keywordItem.totalImpressions.toLocaleString()} impr.`;
+                impressionsSpan.classList.add('text-xs', 'text-slate-400', 'whitespace-nowrap', 'ml-auto');
+
+                textContentDiv.appendChild(queryNameSpan);
+                textContentDiv.appendChild(impressionsSpan);
+                listItem.appendChild(textContentDiv);
+
+                // MODIFIED: Container for badges
+                const badgeContainer = document.createElement('div');
+                badgeContainer.classList.add('badge-container', 'flex-shrink-0');
+
+                if (keywordItem.dominantUrlHasChanged) {
+                    const badge = document.createElement('span');
+                    badge.classList.add('text-xs', 'font-semibold', 'px-1.5', 'py-0.5', 'bg-red-500', 'text-white', 'rounded-full', 'tooltip');
+                    badge.textContent = '!';
+                    const tooltipText = document.createElement('span');
+                    tooltipText.classList.add('tooltiptext');
+                    tooltipText.textContent = 'Dominant URL changed';
+                    badge.appendChild(tooltipText);
+                    badgeContainer.appendChild(badge);
+                }
+
+                if (keywordItem.multiplePagesGotClicks) { // MODIFIED: Add new badge
+                    const badge = document.createElement('span');
+                    badge.classList.add('text-xs', 'font-semibold', 'px-1.5', 'py-0.5', 'bg-orange-500', 'text-white', 'rounded-full', 'tooltip');
+                    badge.textContent = 'C'; // Using 'C' for cannibalisation
+                    const tooltipText = document.createElement('span');
+                    tooltipText.classList.add('tooltiptext');
+                    tooltipText.textContent = 'Multiple pages got clicks';
+                    badge.appendChild(tooltipText);
+                    badgeContainer.appendChild(badge);
+                }
+                
+                if(badgeContainer.hasChildNodes()){
+                    listItem.appendChild(badgeContainer);
+                }
+                
+                listItem.addEventListener('click', () => {
+                    document.querySelectorAll('#keywordListContainer .keyword-item').forEach(item => item.classList.remove('active'));
+                    listItem.classList.add('active');
+                    selectedKeyword = keywordItem.query;
+                    renderChartAndTable(keywordItem.query);
+                });
+                keywordListContainer.appendChild(listItem);
+            });
+            keywordCountText.textContent = `Showing ${keywordsToDisplay.length} of ${Object.keys(processedData).length} keywords with multiple URLs.`;
+        }
+        
+        function filterKeywordList() {
+            displayKeywordList();
+        }
+
+        function renderChartAndTable(query) {
+            const queryData = processedData[query];
+            if (!queryData) {
+                chartTitle.textContent = 'Error: Keyword data not found.';
+                chartError.textContent = 'Could not find data for the selected keyword.';
+                chartError.style.display = 'block';
+                if (chartInstance) chartInstance.destroy();
+                performanceTableContainer.innerHTML = '<p class="text-slate-400">Error loading data for this keyword.</p>';
+                performanceTableTitle.textContent = 'Performance by URL for Selected Keyword'; // Reset title
+                return;
+            }
+            chartError.style.display = 'none';
+
+            chartTitle.textContent = `Visualisation for: ${query}`;
+            performanceTableTitle.textContent = `Performance by URL for ${query}`; // MODIFIED: Dynamic table title
+
+            // The global dominantUrlChangeBadge near chart title is less relevant now with per-keyword badges.
+            // Consider removing or repurposing it if it's confusing. For now, it's not actively updated here.
+
+            const labels = queryData.allDates;
+            const datasets = [];
+            let colorIndex = 0;
+
+            const urlPerformanceDetails = [];
+            let keywordTotalClicks = 0;
+            let keywordTotalImpressions = 0;
+
+            Object.keys(queryData.urls).forEach(url => {
+                let urlTotalClicks = 0;
+                let urlTotalImpressions = 0;
+                queryData.urls[url].forEach(dp => {
+                    urlTotalClicks += dp.clicks;
+                    urlTotalImpressions += dp.impressions;
+                });
+                keywordTotalClicks += urlTotalClicks;
+                keywordTotalImpressions += urlTotalImpressions;
+            });
+
+            Object.keys(queryData.urls).forEach(url => {
+                const urlDataPoints = queryData.urls[url];
+                const metricData = labels.map(date => {
+                    const point = urlDataPoints.find(dp => dp.date === date);
+                    if (!point) return null;
+
+                    switch (selectedMetric) {
+                        case 'Clicks': return point.clicks;
+                        case 'Impressions': return point.impressions;
+                        case 'CTR': return point.ctr * 100;
+                        case 'Position': return point.position === 0 ? null : point.position;
+                        default: return null;
+                    }
+                });
+
+                datasets.push({
+                    label: url.length > 50 ? '...' + url.slice(-47) : url,
+                    data: metricData,
+                    borderColor: CHART_COLORS[colorIndex % CHART_COLORS.length],
+                    backgroundColor: CHART_COLORS[colorIndex % CHART_COLORS.length] + 'BF', // Opacity for fill, e.g. 75%
+                    tension: 0.1,
+                    fill: false, // Can set to true if you prefer filled line charts
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                    spanGaps: true
+                });
+                colorIndex++;
+
+                let totalClicks = 0, totalImpressions = 0, totalWeightedPosition = 0, impressionCountForPosition = 0;
+                let firstSeen = labels.length > 0 ? labels[labels.length -1] : "N/A";
+
+                urlDataPoints.forEach(dp => {
+                    totalClicks += dp.clicks;
+                    totalImpressions += dp.impressions;
+                    if (dp.position > 0 && dp.impressions > 0) {
+                        totalWeightedPosition += dp.position * dp.impressions;
+                        impressionCountForPosition += dp.impressions;
+                    }
+                    if (new Date(dp.date) < new Date(firstSeen) || firstSeen === "N/A") {
+                        firstSeen = dp.date;
+                    }
+                });
+                
+                const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) : 0;
+                const avgPosition = impressionCountForPosition > 0 ? (totalWeightedPosition / impressionCountForPosition) : 0;
+                
+                urlPerformanceDetails.push({
+                    url: url,
+                    totalClicks: totalClicks,
+                    clickShare: keywordTotalClicks > 0 ? (totalClicks / keywordTotalClicks) * 100 : 0,
+                    totalImpressions: totalImpressions,
+                    impressionShare: keywordTotalImpressions > 0 ? (totalImpressions / keywordTotalImpressions) * 100 : 0,
+                    avgCtr: avgCtr * 100,
+                    avgPosition: avgPosition,
+                    firstSeen: firstSeen
+                });
+            });
+
+            urlPerformanceDetails.sort((a,b) => b.totalClicks - a.totalClicks);
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+            chartInstance = new Chart(cannibalisationChartCanvas, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: {
+                            beginAtZero: selectedMetric !== 'Position',
+                            reverse: selectedMetric === 'Position',
+                            title: { display: true, text: selectedMetric },
+                            grid: { color: '#4a5568' },
+                            ticks: { color: '#a0aec0' }
+                        },
+                        x: {
+                            title: { display: true, text: 'Date' },
+                            grid: { display: false },
+                            ticks: { color: '#a0aec0', maxRotation: 45, minRotation: 45 }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'top', labels: { color: '#e2e8f0' } },
+                        tooltip: {
+                            backgroundColor: '#2d3748',
+                            titleColor: '#e2e8f0',
+                            bodyColor: '#e2e8f0',
+                            borderColor: '#4a5568',
+                            borderWidth: 1
+                        }
+                    }
+                }
+            });
+
+            renderPerformanceTable(urlPerformanceDetails);
+        }
+
+        function renderPerformanceTable(details) {
+            performanceTableContainer.innerHTML = '';
+            if (details.length === 0) {
+                performanceTableContainer.innerHTML = '<p class="text-slate-400">No performance data to display for this keyword.</p>';
+                return;
+            }
+
+            const table = document.createElement('table');
+            table.classList.add('min-w-full', 'divide-y', 'divide-gray-700', 'text-sm');
+            
+            table.innerHTML = `
+                <thead class="text-left text-slate-300">
+                    <tr>
+                        <th class="px-4 py-2">URL</th>
+                        <th class="px-4 py-2 text-right">Total Clicks</th>
+                        <th class="px-4 py-2 text-right">Click Share</th>
+                        <th class="px-4 py-2 text-right">Total Impressions</th>
+                        <th class="px-4 py-2 text-right">Imp. Share</th>
+                        <th class="px-4 py-2 text-right">Avg. CTR</th>
+                        <th class="px-4 py-2 text-right">Avg. Position</th>
+                        <th class="px-4 py-2">First Seen</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700">
+                </tbody>
+            `;
+            const tbody = table.querySelector('tbody');
+            details.forEach(item => {
+                const row = tbody.insertRow();
+                row.classList.add('hover:bg-gray-700');
+                row.innerHTML = `
+                    <td class="px-4 py-2 whitespace-nowrap text-blue-400" title="${item.url}">${item.url.length > 60 ? item.url.substring(0,28) + '...' + item.url.substring(item.url.length - 29) : item.url}</td>
+                    <td class="px-4 py-2 text-right">${item.totalClicks.toLocaleString()}</td>
+                    <td class="px-4 py-2 text-right">${item.clickShare.toFixed(2)}%</td>
+                    <td class="px-4 py-2 text-right">${item.totalImpressions.toLocaleString()}</td>
+                    <td class="px-4 py-2 text-right">${item.impressionShare.toFixed(2)}%</td>
+                    <td class="px-4 py-2 text-right">${item.avgCtr.toFixed(2)}%</td>
+                    <td class="px-4 py-2 text-right">${item.avgPosition > 0 ? item.avgPosition.toFixed(2) : 'N/A'}</td>
+                    <td class="px-4 py-2 whitespace-nowrap">${item.firstSeen}</td>
+                `;
+            });
+            performanceTableContainer.appendChild(table);
+        }
+
+        // Initial placeholder messages
+        keywordListContainer.innerHTML = '<p class="text-slate-400">Upload a CSV file to get started.</p>';
+        performanceTableContainer.innerHTML = '<p class="text-slate-400">Upload and select a keyword to see details.</p>';
+        chartTitle.textContent = 'Upload CSV & Select Keyword';
+        performanceTableTitle.textContent = 'Performance by URL for Selected Keyword';
+
+
+    </script>
+</body>
+</html>
